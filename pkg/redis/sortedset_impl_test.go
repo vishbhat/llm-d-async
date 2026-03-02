@@ -3,8 +3,10 @@ package redis
 import (
 	"context"
 	"encoding/json"
+	"math"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -30,7 +32,7 @@ func setupTest(t *testing.T) (*miniredis.Miniredis, *redis.Client, context.Conte
 func TestSortedSetFlow_MessageProcessing(t *testing.T) {
 	s, rdb, ctx, cancel := setupTest(t)
 	defer s.Close()
-	defer rdb.Close()
+	defer rdb.Close() // nolint:errcheck
 	defer cancel()
 
 	queue := "test-queue"
@@ -77,7 +79,7 @@ func TestSortedSetFlow_MessageProcessing(t *testing.T) {
 func TestSortedSetFlow_DeadlineOrdering(t *testing.T) {
 	s, rdb, ctx, cancel := setupTest(t)
 	defer s.Close()
-	defer rdb.Close()
+	defer rdb.Close() // nolint:errcheck
 	defer cancel()
 
 	queue := "priority-queue"
@@ -128,7 +130,7 @@ func TestSortedSetFlow_DeadlineOrdering(t *testing.T) {
 func TestSortedSetFlow_ExpiredMessages(t *testing.T) {
 	s, rdb, ctx, cancel := setupTest(t)
 	defer s.Close()
-	defer rdb.Close()
+	defer rdb.Close() // nolint:errcheck
 	defer cancel()
 
 	queue := "expired-queue"
@@ -166,7 +168,7 @@ func TestSortedSetFlow_ExpiredMessages(t *testing.T) {
 func TestSortedSetFlow_MalformedMessages(t *testing.T) {
 	s, rdb, ctx, cancel := setupTest(t)
 	defer s.Close()
-	defer rdb.Close()
+	defer rdb.Close() // nolint:errcheck
 	defer cancel()
 
 	queue := "malformed-queue"
@@ -215,7 +217,7 @@ func TestSortedSetFlow_MalformedMessages(t *testing.T) {
 func TestSortedSetFlow_RetryBackoff(t *testing.T) {
 	s, rdb, ctx, cancel := setupTest(t)
 	defer s.Close()
-	defer rdb.Close()
+	defer rdb.Close() // nolint:errcheck
 	defer cancel()
 
 	queue := "retry-queue"
@@ -258,7 +260,7 @@ func TestSortedSetFlow_RetryBackoff(t *testing.T) {
 func TestSortedSetFlow_ResultFIFO(t *testing.T) {
 	s, rdb, ctx, cancel := setupTest(t)
 	defer s.Close()
-	defer rdb.Close()
+	defer rdb.Close() // nolint:errcheck
 	defer cancel()
 
 	queue := "result-queue"
@@ -285,8 +287,8 @@ func TestSortedSetFlow_ResultFIFO(t *testing.T) {
 	second, _ := rdb.RPop(ctx, queue).Result()
 
 	var msg1, msg2 api.ResultMessage
-	json.Unmarshal([]byte(first), &msg1)
-	json.Unmarshal([]byte(second), &msg2)
+	json.Unmarshal([]byte(first), &msg1)  // nolint:errcheck
+	json.Unmarshal([]byte(second), &msg2) // nolint:errcheck
 
 	if msg1.Id != "first" || msg2.Id != "second" {
 		t.Errorf("FIFO order broken: got %s, %s", msg1.Id, msg2.Id)
@@ -296,7 +298,7 @@ func TestSortedSetFlow_ResultFIFO(t *testing.T) {
 func TestSortedSetFlow_NoRaceCondition(t *testing.T) {
 	s, rdb, ctx, cancel := setupTest(t)
 	defer s.Close()
-	defer rdb.Close()
+	defer rdb.Close() // nolint:errcheck
 	defer cancel()
 
 	queue := "race-queue"
@@ -354,7 +356,7 @@ func TestSortedSetFlow_NoRaceCondition(t *testing.T) {
 func TestSortedSetFlow_ContextCancellation(t *testing.T) {
 	s, rdb, ctx, _ := setupTest(t)
 	defer s.Close()
-	defer rdb.Close()
+	defer rdb.Close() // nolint:errcheck
 
 	queue := "cancel-queue"
 	flow := &RedisSortedSetFlow{
@@ -389,7 +391,7 @@ func TestSortedSetFlow_ContextCancellation(t *testing.T) {
 func TestSortedSetFlow_Integration(t *testing.T) {
 	s, rdb, ctx, cancel := setupTest(t)
 	defer s.Close()
-	defer rdb.Close()
+	defer rdb.Close() // nolint:errcheck
 	defer cancel()
 
 	queue := "integration-queue"
@@ -422,15 +424,17 @@ func TestSortedSetFlow_Integration(t *testing.T) {
 func TestSortedSetFlow_ZeroBudget(t *testing.T) {
 	s, rdb, ctx, cancel := setupTest(t)
 	defer s.Close()
-	defer rdb.Close()
+	defer rdb.Close() // nolint:errcheck
 	defer cancel()
 
 	queue := "zero-budget-queue"
 
 	// Create a gate with zero budget initially
-	budgetValue := 0.0
+	var budgetValue atomic.Uint64 // Store as bits to represent float64
+
+	budgetValue.Store(math.Float64bits(0.0))
 	gate := flowcontrol.DispatchGateFunc(func(ctx context.Context) float64 {
-		return budgetValue
+		return math.Float64frombits(budgetValue.Load())
 	})
 
 	flow := &RedisSortedSetFlow{
@@ -470,7 +474,7 @@ func TestSortedSetFlow_ZeroBudget(t *testing.T) {
 	}
 
 	// Increase budget to full capacity
-	budgetValue = 1.0
+	budgetValue.Store(math.Float64bits(1.0))
 
 	// Message should now be pulled
 	select {
@@ -486,7 +490,7 @@ func TestSortedSetFlow_ZeroBudget(t *testing.T) {
 func TestSortedSetFlow_PartialBudget(t *testing.T) {
 	s, rdb, ctx, cancel := setupTest(t)
 	defer s.Close()
-	defer rdb.Close()
+	defer rdb.Close() // nolint:errcheck
 	defer cancel()
 
 	queue := "partial-budget-queue"
@@ -533,7 +537,7 @@ func TestSortedSetFlow_PartialBudget(t *testing.T) {
 func TestSortedSetFlow_WithDispatchGateOption(t *testing.T) {
 	s, rdb, ctx, cancel := setupTest(t)
 	defer s.Close()
-	defer rdb.Close()
+	defer rdb.Close() // nolint:errcheck
 	defer cancel()
 
 	queue := "option-test-queue"

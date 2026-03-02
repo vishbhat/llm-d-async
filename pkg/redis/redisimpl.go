@@ -147,7 +147,7 @@ func resultWorker(ctx context.Context, rdb *redis.Client, resultChannel chan api
 func requestWorker(ctx context.Context, rdb *redis.Client, msgChannel chan api.RequestMessage, queueName string) {
 	logger := log.FromContext(ctx)
 	sub := rdb.Subscribe(ctx, queueName)
-	defer sub.Close()
+	defer sub.Close() // nolint:errcheck
 
 	ch := sub.Channel()
 	for {
@@ -224,9 +224,12 @@ func (r *RedisMQFlow) retryWorker(ctx context.Context, rdb *redis.Client) {
 
 		default:
 			currentTimeSec := float64(time.Now().Unix())
-			results, err := rdb.ZRangeByScore(ctx, *retryQueueName, &redis.ZRangeBy{
-				Min: "0",
-				Max: strconv.FormatFloat(currentTimeSec, 'f', -1, 64),
+
+			results, err := rdb.ZRangeArgs(ctx, redis.ZRangeArgs{
+				Key:     *retryQueueName,
+				Start:   "0",
+				Stop:    strconv.FormatFloat(currentTimeSec, 'f', -1, 64),
+				ByScore: true,
 			}).Result()
 			if err != nil {
 				panic(err)
