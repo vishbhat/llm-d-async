@@ -39,6 +39,9 @@ func main() {
 
 	var igwBaseURL string
 
+	var gmpProjectID string
+	var gmpModelName string
+
 	flag.IntVar(&loggerVerbosity, "v", logging.DEFAULT, "number for the log level verbosity")
 
 	flag.IntVar(&metricsPort, "metrics-port", 9090, "The metrics port")
@@ -48,8 +51,12 @@ func main() {
 
 	flag.StringVar(&igwBaseURL, "igw-base-url", "", "Base URL of the IGW (e.g. https://localhost:30800)")
 	flag.StringVar(&requestMergePolicy, "request-merge-policy", "random-robin", "The request merge policy to use. Supported policies: random-robin")
-	flag.StringVar(&dispatchGateType, "dispatch-gate", "noop", "The dispatch gate policy to use. Supported policies: noop, redis")
-	flag.StringVar(&messageQueueImpl, "message-queue-impl", "redis-pubsub", "The message queue implementation to use. Supported implementations: redis-pubsub, redis-sortedset, redis-sortedset-gated, gcp-pubsub")
+	flag.StringVar(&dispatchGateType, "dispatch-gate", "noop", "The dispatch gate policy to use. Supported policies: noop, redis, gmp-avg-queue-size")
+	flag.StringVar(&messageQueueImpl, "message-queue-impl", "redis-pubsub", "The message queue implementation to use. Supported implementations: redis-pubsub, redis-sortedset, redis-sortedset-gated, gcp-pubsub, gcp-pubsub-gated")
+
+	// TODO: refactor most of configuration to config files and not cmd line flags
+	flag.StringVar(&gmpProjectID, "gmp.gate.project-id", "", "Project ID for Google Managed Prometheus")
+	flag.StringVar(&gmpModelName, "gmp.model-name", "", "metrics name to use for avg_queue_size")
 
 	opts := zap.Options{
 		Development: true,
@@ -67,8 +74,54 @@ func main() {
 	////////setupLog.Info("GIE build", "commit-sha", version.CommitSHA, "build-ref", version.BuildRef)
 
 	printAllFlags(setupLog)
+	// Create dispatch gate
+	var gate flowcontrol.DispatchGate
+	switch dispatchGateType {
+	case "noop":
+		gate = flowcontrol.DispatchGateFunc(func(ctx context.Context) float64 {
+			return 1.0 // Full capacity
+		})
+	case "redis":
+		gate = redis.NewRedisDispatchGate()
+		setupLog.Info("Using Redis-based dispatch gate")
+	case "gmp-avg-queue-size":
+		gate = flowcontrol.AverageQueueSizeGMPGate(gmpProjectID, gmpModelName)
+	default:
+		setupLog.Error(fmt.Errorf("unknown dispatch gate type: %s", dispatchGateType), "Unknown dispatch gate type", "dispatch-gate", dispatchGateType)
+		os.Exit(1)
+	}
 
-	metrics.Register(metrics.GetAsyncProcessorCollectors()...)
+	var policy api.RequestMergePolicy
+	switch requestMergePolicy {
+	case "random-robin":
+		policy = async.NewRandomRobinPolicy()
+	default:
+		setupLog.Error(fmt.Errorf("unknown request merge policy: %s", requestMergePolicy), "Unknown request merge policy", "request-merge-policy",
+			requestMergePolicy)
+		os.Exit(1)
+	}
+	var impl api.Flow
+	switch messageQueueImpl {
+	case "redis-pubsub":
+		impl = redis.NewRedisMQFlow()
+	case "redis-sortedset":
+		impl = redis.NewRedisSortedSetFlow()
+	case "redis-sortedset-gated":
+		impl = redis.NewRedisSortedSetFlow(redis.WithDispatchGate(gate))
+		setupLog.Info("Using Redis sorted-set flow with dispatch gating", "gate-type", dispatchGateType)
+	case "gcp-pubsub":
+		impl = pubsub.NewGCPPubSubMQFlow()
+	case "gcp-pubsub-gated":
+		impl = pubsub.NewGCPPubSubMQFlow(pubsub.WithDispatchGate(gate))
+		setupLog.Info("Using GCP PubSub flow with dispatch gating", "gate-type", dispatchGateType)
+	default:
+
+		setupLog.Error(fmt.Errorf("unknown message queue implementation: %s", messageQueueImpl), "Unknown message queue implementation",
+			"message-queue-impl", messageQueueImpl)
+		os.Exit(1)
+	}
+
+	metrics.Register(metrics.GetAsyncProcessorCollectors(impl.Characteristics().SupportsMessageLatency)...)
 
 	ctx := ctrl.SetupSignalHandler()
 
@@ -94,49 +147,6 @@ func main() {
 	go msrv.Start(ctx) // nolint:errcheck
 
 	/////
-
-	// Create dispatch gate
-	var gate flowcontrol.DispatchGate
-	switch dispatchGateType {
-	case "noop":
-		gate = flowcontrol.DispatchGateFunc(func(ctx context.Context) float64 {
-			return 1.0 // Full capacity
-		})
-	case "redis":
-		gate = redis.NewRedisDispatchGate()
-		setupLog.Info("Using Redis-based dispatch gate")
-	default:
-		setupLog.Error(fmt.Errorf("unknown dispatch gate type: %s", dispatchGateType), "Unknown dispatch gate type", "dispatch-gate", dispatchGateType)
-		os.Exit(1)
-	}
-
-	var policy api.RequestMergePolicy
-	switch requestMergePolicy {
-	case "random-robin":
-		policy = async.NewRandomRobinPolicy()
-	default:
-		setupLog.Error(fmt.Errorf("unknown request merge policy: %s", requestMergePolicy), "Unknown request merge policy", "request-merge-policy",
-			requestMergePolicy)
-		os.Exit(1)
-	}
-
-	var impl api.Flow
-	switch messageQueueImpl {
-	case "redis-pubsub":
-		impl = redis.NewRedisMQFlow()
-	case "redis-sortedset":
-		impl = redis.NewRedisSortedSetFlow()
-	case "redis-sortedset-gated":
-		impl = redis.NewRedisSortedSetFlow(redis.WithDispatchGate(gate))
-		setupLog.Info("Using Redis sorted-set flow with dispatch gating", "gate-type", dispatchGateType)
-	case "gcp-pubsub":
-		impl = pubsub.NewGCPPubSubMQFlow()
-	default:
-
-		setupLog.Error(fmt.Errorf("unknown message queue implementation: %s", messageQueueImpl), "Unknown message queue implementation",
-			"message-queue-impl", messageQueueImpl)
-		os.Exit(1)
-	}
 
 	igwBaseURL = util.NormalizeBaseURL(igwBaseURL)
 
