@@ -48,7 +48,7 @@ runs:
           LATEST_TAG="-t ${{ inputs.registry }}/${{ inputs.image-name }}:latest"
         fi
         docker buildx build \
-          --platform linux/amd64,linux/arm64 \
+          --platform linux/amd64 \
           --build-arg PYTHON_VERSION=${{ inputs.python-version }} \
           -t ${{ inputs.registry }}/${{ inputs.image-name }}:${{ inputs.tag }} \
           ${LATEST_TAG} -f ${{ inputs.docker-file }} --push .
