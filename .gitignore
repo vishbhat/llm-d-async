@@ -18,6 +18,9 @@ bin/
 # Dependency directories (remove the comment below to include it)
 vendor/
 
+# Release binaries
+release/
+
 # Kind config file
 kind-config.yaml
 
