@@ -93,7 +93,7 @@ func NewRedisSortedSetFlow(opts ...SortedSetOption) *RedisSortedSetFlow {
 		}),
 		requestChannels: make([]requestChannelData, 0, len(configs)),
 		retryChannel:    make(chan api.RetryMessage),
-		resultChannel:   make(chan api.ResultMessage),
+		resultChannel:   make(chan api.ResultMessage, resultChannelBuffer),
 		pollInterval:    time.Duration(*ssPollIntervalMs) * time.Millisecond,
 		batchSize:       *ssBatchSize,
 	}
@@ -308,7 +308,8 @@ func (r *RedisSortedSetFlow) retryWorker(ctx context.Context) {
 }
 
 // Pushes results to Redis list (FIFO)
-// Routes results to the queue specified in request metadata, or default queue if not specified
+// Routes results to the queue specified in request metadata, or default queue if not specified.
+// Batches multiple results into a single Redis pipeline call to reduce round-trips.
 func (r *RedisSortedSetFlow) resultWorker(ctx context.Context) {
 	logger := log.FromContext(ctx)
 
@@ -317,19 +318,43 @@ func (r *RedisSortedSetFlow) resultWorker(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case msg := <-r.resultChannel:
-			// Check metadata for custom result queue (set by producer)
-			resultQueue := *ssResultQueueName // default queue
-			if msg.Metadata != nil {
-				if customQueue, ok := msg.Metadata["result_queue"]; ok && customQueue != "" {
-					resultQueue = customQueue
+			// Collect a batch: start with the message we already received,
+			// then drain any additional available messages without blocking.
+			batch := make([]api.ResultMessage, 1, maxResultBatchSize)
+			batch[0] = msg
+			done := false
+			for len(batch) < maxResultBatchSize && !done {
+				select {
+				case result := <-r.resultChannel:
+					batch = append(batch, result)
+				default:
+					done = true
 				}
 			}
 
-			msgStr := r.marshalResult(msg)
-			if err := r.rdb.LPush(ctx, resultQueue, msgStr).Err(); err != nil {
-				logger.V(logutil.DEFAULT).Error(err, "Failed to push result", "queue", resultQueue)
+			// Group by target queue and flush via pipeline.
+			defaultQueue := *ssResultQueueName
+			queued := make(map[string][]string)
+			for _, result := range batch {
+				resultQueue := defaultQueue
+				if result.Metadata != nil {
+					if customQueue, ok := result.Metadata["result_queue"]; ok && customQueue != "" {
+						resultQueue = customQueue
+					}
+				}
+				queued[resultQueue] = append(queued[resultQueue], r.marshalResult(result))
+			}
+
+			pipe := r.rdb.Pipeline()
+			for queue, msgs := range queued {
+				for _, msgStr := range msgs {
+					pipe.LPush(ctx, queue, msgStr)
+				}
+			}
+			if _, err := pipe.Exec(ctx); err != nil {
+				logger.V(logutil.DEFAULT).Error(err, "Failed to push result batch to Redis", "batchSize", len(batch))
 			} else {
-				logger.V(logutil.DEBUG).Info("Pushed result to queue", "id", msg.Id, "queue", resultQueue)
+				logger.V(logutil.DEBUG).Info("Pushed result batch", "batchSize", len(batch))
 			}
 		}
 	}
