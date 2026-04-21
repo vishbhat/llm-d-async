@@ -63,8 +63,8 @@ func TestSortedSetFlow_MessageProcessing(t *testing.T) {
 		if received.Id != "msg-1" {
 			t.Errorf("Expected msg-1, got %s", received.Id)
 		}
-		if received.Metadata[SORTEDSET_QUEUE_NAME_KEY] != queue {
-			t.Error("Queue name not set in metadata")
+		if received.RequestQueueName != queue {
+			t.Errorf("Expected RequestQueueName=%s, got %s", queue, received.RequestQueueName)
 		}
 	case <-time.After(1 * time.Second):
 		t.Fatal("Timeout waiting for message")
@@ -234,12 +234,12 @@ func TestSortedSetFlow_RetryBackoff(t *testing.T) {
 	retryMsg := api.RetryMessage{
 		EmbelishedRequestMessage: api.EmbelishedRequestMessage{
 			RequestMessage: api.RequestMessage{
-				Id:              "retry-1",
-				CreatedUnixSec:  strconv.FormatInt(time.Now().Unix(), 10),
-				DeadlineUnixSec: "9999999999",
-				RetryCount:      1,
+				Id:               "retry-1",
+				CreatedUnixSec:   strconv.FormatInt(time.Now().Unix(), 10),
+				DeadlineUnixSec:  "9999999999",
+				RetryCount:       1,
+				RequestQueueName: queue,
 			},
-			Metadata: map[string]string{SORTEDSET_QUEUE_NAME_KEY: queue},
 		},
 		BackoffDurationSeconds: 2.0,
 	}
@@ -372,15 +372,15 @@ func TestSortedSetFlow_ResultBatchMultiQueue(t *testing.T) {
 	// Send messages targeting different queues in a single batch.
 	flow.resultChannel <- api.ResultMessage{Id: "default-1", Payload: "d1"}
 	flow.resultChannel <- api.ResultMessage{
-		Id:       "custom-1",
-		Payload:  "c1",
-		Metadata: map[string]string{"result_queue": customQueue},
+		Id:              "custom-1",
+		Payload:         "c1",
+		ResultQueueName: customQueue,
 	}
 	flow.resultChannel <- api.ResultMessage{Id: "default-2", Payload: "d2"}
 	flow.resultChannel <- api.ResultMessage{
-		Id:       "custom-2",
-		Payload:  "c2",
-		Metadata: map[string]string{"result_queue": customQueue},
+		Id:              "custom-2",
+		Payload:         "c2",
+		ResultQueueName: customQueue,
 	}
 
 	go flow.resultWorker(ctx)

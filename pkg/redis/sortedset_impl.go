@@ -19,8 +19,6 @@ import (
 	logutil "sigs.k8s.io/gateway-api-inference-extension/pkg/epp/util/logging"
 )
 
-const SORTEDSET_QUEUE_NAME_KEY = "queue_name"
-
 var (
 	ssIGWBaseURL         = flag.String("redis.ss.igw-base-url", "", "IGW base URL")
 	ssRequestPathURL     = flag.String("redis.ss.request-path-url", "/v1/completions", "Request path URL")
@@ -252,10 +250,9 @@ func (r *RedisSortedSetFlow) processMessages(ctx context.Context, msgChannel cha
 			continue
 		}
 
-		if msg.Metadata == nil {
-			msg.Metadata = make(map[string]string)
+		if msg.RequestQueueName == "" {
+			msg.RequestQueueName = queueName
 		}
-		msg.Metadata[SORTEDSET_QUEUE_NAME_KEY] = queueName
 
 		select {
 		case msgChannel <- msg:
@@ -290,7 +287,7 @@ func (r *RedisSortedSetFlow) retryWorker(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case msg := <-r.retryChannel:
-			queueName := msg.Metadata[SORTEDSET_QUEUE_NAME_KEY]
+			queueName := msg.RequestQueueName
 			if queueName == "" {
 				queueName = *ssRequestQueueName
 			}
@@ -310,7 +307,7 @@ func (r *RedisSortedSetFlow) retryWorker(ctx context.Context) {
 }
 
 // Pushes results to Redis list (FIFO)
-// Routes results to the queue specified in request metadata, or default queue if not specified.
+// Routes by ResultQueueName, or the flow default if empty.
 // Batches multiple results into a single Redis pipeline call to reduce round-trips.
 func (r *RedisSortedSetFlow) resultWorker(ctx context.Context) {
 	logger := log.FromContext(ctx)
@@ -338,11 +335,9 @@ func (r *RedisSortedSetFlow) resultWorker(ctx context.Context) {
 			defaultQueue := *ssResultQueueName
 			queued := make(map[string][]string)
 			for _, result := range batch {
-				resultQueue := defaultQueue
-				if result.Metadata != nil {
-					if customQueue, ok := result.Metadata["result_queue"]; ok && customQueue != "" {
-						resultQueue = customQueue
-					}
+				resultQueue := result.ResultQueueName
+				if resultQueue == "" {
+					resultQueue = defaultQueue
 				}
 				queued[resultQueue] = append(queued[resultQueue], r.marshalResult(result))
 			}

@@ -30,11 +30,11 @@ func TestRedisImpl(t *testing.T) {
 	flow.RetryChannel() <- api.RetryMessage{
 		EmbelishedRequestMessage: api.EmbelishedRequestMessage{
 			RequestMessage: api.RequestMessage{
-				Id:              "test-id",
-				CreatedUnixSec:  strconv.FormatInt(time.Now().Unix(), 10),
-				DeadlineUnixSec: strconv.FormatInt(time.Now().Add(time.Minute).Unix(), 10),
-				Payload:         map[string]any{"model": "food-review", "prompt": "hi", "max_tokens": 10, "temperature": 0},
-				Metadata:        map[string]string{redis.QUEUE_NAME_KEY: "request-queue"},
+				Id:               "test-id",
+				CreatedUnixSec:   strconv.FormatInt(time.Now().Unix(), 10),
+				DeadlineUnixSec:  strconv.FormatInt(time.Now().Add(time.Minute).Unix(), 10),
+				Payload:          map[string]any{"model": "food-review", "prompt": "hi", "max_tokens": 10, "temperature": 0},
+				RequestQueueName: "request-queue",
 			},
 			RequestURL:  "http://localhost:30800/v1/completions",
 			HttpHeaders: map[string]string{},

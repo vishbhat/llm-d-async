@@ -252,12 +252,12 @@ func TestPopDueRetryMessages_PopsDueAndRemovesFromSortedSet(t *testing.T) {
 	now := time.Now().Unix()
 
 	due := api.RequestMessage{
-		Id:       "due",
-		Metadata: map[string]string{QUEUE_NAME_KEY: "request-queue"},
+		Id:               "due",
+		RequestQueueName: "request-queue",
 	}
 	future := api.RequestMessage{
-		Id:       "future",
-		Metadata: map[string]string{QUEUE_NAME_KEY: "request-queue"},
+		Id:               "future",
+		RequestQueueName: "request-queue",
 	}
 
 	dueBytes, err := json.Marshal(due)
@@ -314,8 +314,8 @@ func TestPopDueRetryMessages_ConcurrentCallers_NoDuplicatePops(t *testing.T) {
 
 	for i := 0; i < totalMessages; i++ {
 		msg := api.RequestMessage{
-			Id:       "msg-" + strconv.Itoa(i),
-			Metadata: map[string]string{QUEUE_NAME_KEY: "request-queue"},
+			Id:               "msg-" + strconv.Itoa(i),
+			RequestQueueName: "request-queue",
 		}
 		msgBytes, err := json.Marshal(msg)
 		if err != nil {

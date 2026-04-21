@@ -70,9 +70,9 @@ func TestSubmitRequest(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, "test-123", msg.Id)
 
-	// Verify metadata includes result_queue with tenant namespace
+	// Verify ResultQueueName is set with tenant namespace
 	assert.Equal(t, "test-user", msg.Metadata["user"])
-	assert.Equal(t, "results:test-tenant:test-result-queue", msg.Metadata["result_queue"])
+	assert.Equal(t, "results:test-tenant:test-result-queue", msg.ResultQueueName)
 }
 
 func TestSubmitRequest_Validation(t *testing.T) {
@@ -234,7 +234,7 @@ func TestMultipleTenantsIsolation(t *testing.T) {
 	err = tenant2Producer.SubmitRequest(ctx, req2)
 	require.NoError(t, err)
 
-	// Verify both requests have different result_queue metadata
+	// Verify both requests have different ResultQueueName
 	members, err := mr.ZMembers("shared-request-queue")
 	require.NoError(t, err)
 	assert.Len(t, members, 2)
@@ -243,8 +243,8 @@ func TestMultipleTenantsIsolation(t *testing.T) {
 	require.NoError(t, json.Unmarshal([]byte(members[0]), &msg1))
 	require.NoError(t, json.Unmarshal([]byte(members[1]), &msg2))
 
-	assert.Equal(t, "results:tenant-alice:my-results", msg1.Metadata["result_queue"])
-	assert.Equal(t, "results:tenant-bob:my-results", msg2.Metadata["result_queue"])
+	assert.Equal(t, "results:tenant-alice:my-results", msg1.ResultQueueName)
+	assert.Equal(t, "results:tenant-bob:my-results", msg2.ResultQueueName)
 
 	// Simulate worker routing results to correct tenant queues
 	result1 := api.ResultMessage{

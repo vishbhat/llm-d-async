@@ -18,8 +18,6 @@ import (
 	logutil "sigs.k8s.io/gateway-api-inference-extension/pkg/epp/util/logging"
 )
 
-const PUBSUB_ID = "pubsub-id"
-
 var pubSubClient *pubsub.Client
 
 var (
@@ -198,7 +196,7 @@ func resultWorker(ctx context.Context, publisher *pubsub.Publisher, resultChanne
 				msgBytes = bytes
 			}
 			publishPubSub(ctx, publisher, msgBytes, map[string]string{})
-			pubsubID := msg.Metadata[PUBSUB_ID]
+			pubsubID := msg.PubSubMessageID
 			value, ok := resultChannels.Load(pubsubID)
 			if !ok {
 				logger.V(logutil.DEFAULT).Error(nil, "Result channel not found for message", "pubsubID", pubsubID)
@@ -229,7 +227,7 @@ func addMsgToRetryQueue(ctx context.Context, retryChannel chan api.RetryMessage)
 			return
 
 		case msg := <-retryChannel:
-			pubsubID := msg.RequestMessage.Metadata[PUBSUB_ID]
+			pubsubID := msg.PubSubMessageID
 			value, ok := resultChannels.Load(pubsubID)
 			if !ok {
 				logger.V(logutil.DEFAULT).Error(nil, "Result channel not found for retry message", "pubsubID", pubsubID)
@@ -294,10 +292,7 @@ func (r *PubSubMQFlow) requestWorker(ctx context.Context, pubSubClient *pubsub.C
 			resultChannels.Store(msg.ID, resultsChannel)
 			defer resultChannels.Delete(msg.ID)
 
-			if msgObj.Metadata == nil {
-				msgObj.Metadata = make(map[string]string)
-			}
-			msgObj.Metadata[PUBSUB_ID] = msg.ID
+			msgObj.PubSubMessageID = msg.ID
 			if deliveryAttempt != nil {
 				msgObj.RetryCount = *deliveryAttempt - 1
 			}

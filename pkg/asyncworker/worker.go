@@ -60,9 +60,11 @@ func Worker(ctx context.Context, characteristics asyncapi.Characteristics, clien
 					// Success - got a valid response
 					metrics.SuccessfulReqs.Inc()
 					resultChannel <- asyncapi.ResultMessage{
-						Id:       msg.Id,
-						Payload:  string(responseBody),
-						Metadata: msg.Metadata,
+						Id:              msg.Id,
+						Payload:         string(responseBody),
+						ResultQueueName: msg.ResultQueueName,
+						PubSubMessageID: msg.PubSubMessageID,
+						Metadata:        msg.Metadata,
 					}
 					return
 				}
@@ -159,9 +161,11 @@ func CreateErrorResultMessage(msg asyncapi.RequestMessage, errMsg string) asynca
 		payloadBytes = []byte(`{"error": "internal error"}`)
 	}
 	return asyncapi.ResultMessage{
-		Id:       msg.Id,
-		Payload:  string(payloadBytes),
-		Metadata: msg.Metadata,
+		Id:              msg.Id,
+		Payload:         string(payloadBytes),
+		ResultQueueName: msg.ResultQueueName,
+		PubSubMessageID: msg.PubSubMessageID,
+		Metadata:        msg.Metadata,
 	}
 }
 

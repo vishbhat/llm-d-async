@@ -16,8 +16,6 @@ import (
 	logutil "sigs.k8s.io/gateway-api-inference-extension/pkg/epp/util/logging"
 )
 
-const QUEUE_NAME_KEY = "queue_name"
-
 const (
 	// resultChannelBuffer decouples inference workers from the result writer.
 	// Workers can send results without blocking until the buffer is full.
@@ -218,12 +216,10 @@ func requestWorker(ctx context.Context, rdb *redis.Client, msgChannel chan api.R
 			if err != nil {
 				logger.V(logutil.DEFAULT).Error(err, "Failed to unmarshal message from request channel")
 				continue // skip this message
-
 			}
-			if msg.Metadata == nil {
-				msg.Metadata = make(map[string]string)
+			if msg.RequestQueueName == "" {
+				msg.RequestQueueName = queueName
 			}
-			msg.Metadata[QUEUE_NAME_KEY] = queueName
 			msgChannel <- msg
 		}
 	}
@@ -302,7 +298,7 @@ func (r *RedisMQFlow) retryWorker(ctx context.Context, rdb *redis.Client) {
 						logger.V(logutil.DEFAULT).Error(err, "Failed to unmarshal retry message")
 						continue
 					}
-					queueName := message.Metadata[QUEUE_NAME_KEY]
+					queueName := message.RequestQueueName
 					msgChannel, ok := msgChannels[queueName]
 					if !ok {
 						logger.V(logutil.DEFAULT).Info("Unknown retry queue, dropping message", "queueName", queueName, "messageId", message.Id)

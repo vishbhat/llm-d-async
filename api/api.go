@@ -64,12 +64,18 @@ type RequestMergePolicy interface {
 // TODO: Consider per-message metadata map[string]string
 // add endpoint to message level.
 type RequestMessage struct {
-	Id              string            `json:"id"`
-	CreatedUnixSec  string            `json:"created"`               // Unix seconds
-	RetryCount      int               `json:"retry_count,omitempty"` // TODO: Consider
-	DeadlineUnixSec string            `json:"deadline"`              // TODO: check about using int64, change name to timeout
-	Payload         map[string]any    `json:"payload"`
-	Metadata        map[string]string `json:"metadata,omitempty"`
+	Id               string         `json:"id"`
+	CreatedUnixSec   string         `json:"created"`               // Unix seconds
+	RetryCount       int            `json:"retry_count,omitempty"` // TODO: Consider
+	DeadlineUnixSec  string         `json:"deadline"`              // TODO: check about using int64, change name to timeout
+	Payload          map[string]any `json:"payload"`
+	RequestQueueName string         `json:"request_queue_name,omitempty"`
+	ResultQueueName  string         `json:"result_queue_name,omitempty"`
+	// PubSubMessageID is set by the Google Cloud Pub/Sub flow for Ack/Nack correlation. Not serialized to Redis.
+	PubSubMessageID string `json:"-"`
+	// Metadata is for opaque caller-supplied key-value data only. The system does not
+	// read or write internal routing keys here (use RequestQueueName, ResultQueueName, PubSubMessageID).
+	Metadata map[string]string `json:"metadata,omitempty"`
 }
 
 type RequestChannel struct {
@@ -88,7 +94,6 @@ type EmbelishedRequestMessage struct {
 	RequestMessage
 	HttpHeaders map[string]string
 	RequestURL  string
-	Metadata    map[string]string
 }
 
 type RetryMessage struct {
@@ -98,7 +103,10 @@ type RetryMessage struct {
 
 // optional field of httpstatus, golang error?
 type ResultMessage struct {
-	Id       string            `json:"id"`
-	Payload  string            `json:"payload"`
+	Id              string `json:"id"`
+	Payload         string `json:"payload"`
+	ResultQueueName string `json:"-"`
+	PubSubMessageID string `json:"-"`
+	// Metadata is caller opaque pass-through only (not used for system routing).
 	Metadata map[string]string `json:"-"`
 }

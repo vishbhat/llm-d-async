@@ -99,7 +99,10 @@ func NewRedisSortedSetProducer(config RedisSortedSetConfig) (*RedisSortedSetProd
 
 // SubmitRequest adds a request to the Redis sorted set.
 // The score is the deadline, ensuring earlier deadlines are processed first.
-// The request metadata includes the result queue name so workers know where to send results.
+// If req.RequestQueueName is set, the request is written to that queue;
+// otherwise the producer-level default is used.
+// If req.ResultQueueName is not set, it is populated with the producer-level default
+// so workers know where to send results.
 func (p *RedisSortedSetProducer) SubmitRequest(ctx context.Context, req api.RequestMessage) error {
 	if req.Id == "" {
 		return errors.New("request ID is required")
@@ -119,13 +122,16 @@ func (p *RedisSortedSetProducer) SubmitRequest(ctx context.Context, req api.Requ
 		return errors.New("deadline must be a positive Unix timestamp")
 	}
 
-	// Initialize metadata if not present
-	if req.Metadata == nil {
-		req.Metadata = make(map[string]string)
+	// Use per-message result queue or fall back to producer default.
+	if req.ResultQueueName == "" {
+		req.ResultQueueName = p.resultQueueName
 	}
 
-	// Add result queue name to metadata so worker knows where to send the result
-	req.Metadata["result_queue"] = p.resultQueueName
+	// Use per-message request queue or fall back to producer default.
+	targetQueue := p.requestQueueName
+	if req.RequestQueueName != "" {
+		targetQueue = req.RequestQueueName
+	}
 
 	// Marshal request message to JSON
 	msgBytes, err := json.Marshal(req)
@@ -135,7 +141,7 @@ func (p *RedisSortedSetProducer) SubmitRequest(ctx context.Context, req api.Requ
 
 	// Add to sorted set with deadline as score
 	score := float64(deadline)
-	if err := p.client.ZAdd(ctx, p.requestQueueName, redis.Z{
+	if err := p.client.ZAdd(ctx, targetQueue, redis.Z{
 		Score:  score,
 		Member: string(msgBytes),
 	}).Err(); err != nil {
